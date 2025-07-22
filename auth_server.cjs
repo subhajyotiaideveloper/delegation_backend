@@ -148,6 +148,37 @@ app.put('/profile', authenticateToken, async (req, res) => {
   }
 });
 
+// Change password endpoint
+app.post('/change-password', authenticateToken, async (req, res) => {
+  const email = req.user.email;
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Missing fields' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    const match = await bcrypt.compare(currentPassword, user.password);
+
+    if (!match) {
+      return res.status(401).json({ error: 'Invalid current password' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password = $1 WHERE email = $2', [hashed, email]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Get all delegations
 app.get('/delegations', async (req, res) => {
   try {
@@ -196,7 +227,29 @@ app.put('/delegations/:id', async (req, res) => {
         task_name=$1, assigned_by=$2, assigned_to=$3, planned_date=$4, priority=$5, message=$6, attachments=$7, assigned_pc=$8, group_name=$9, notify_to=$10, auditor=$11, make_attachment_mandatory=$12, make_note_mandatory=$13, notify_doer=$14, set_reminder=$15, reminder_mode=$16, reminder_frequency=$17, reminder_before_days=$18, reminder_starting_time=$19, status=$20, completed_at=$21, notes=$22
       WHERE id=$23`,
       [
-        d.taskName, d.assignedBy, d.assignedTo, d.plannedDate, d.priority, d.message, d.attachments || [], d.assignedPC, d.groupName, d.notifyTo, d.auditor, d.makeAttachmentMandatory, d.makeNoteMandatory, d.notifyDoer, d.setReminder, d.reminderMode, d.reminderFrequency, d.reminderBeforeDays, d.reminderStartingTime, d.status, d.completedAt, d.notes, id
+        d.taskName,
+        d.assignedBy?.email || null,
+        d.assignedTo?.email || null,
+        d.plannedDate,
+        d.priority,
+        d.message,
+        Array.isArray(d.attachments) ? d.attachments.map(f => f.name || f) : [],
+        d.assignedPC,
+        d.groupName,
+        d.notifyTo?.email || null,
+        d.auditor?.email || null,
+        d.makeAttachmentMandatory,
+        d.makeNoteMandatory,
+        d.notifyDoer,
+        d.setReminder,
+        d.reminderMode,
+        d.reminderFrequency,
+        d.reminderBeforeDays,
+        d.reminderStartingTime,
+        d.status,
+        d.completedAt,
+        d.notes,
+        id
       ]
     );
     res.json({ success: true });
